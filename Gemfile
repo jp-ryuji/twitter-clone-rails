@@ -17,6 +17,13 @@ gem 'tzinfo-data', platforms: %i[mingw mswin x64_mingw jruby]
 group :development, :test do
   gem 'debug', platforms: %i[mri mingw x64_mingw]
   gem 'factory_bot_rails'
+  gem 'pry-alias'
+  gem 'pry-byebug'
+  gem 'pry-coolline'
+  gem 'pry-doc'
+  gem 'pry-rails'
+  gem 'pry-rescue'
+  gem 'pry-stack_explorer'
   gem 'rspec_junit_formatter'
   gem 'rspec-rails'
   gem 'simplecov', require: false
