@@ -89,6 +89,7 @@ GEM
       uniform_notifier (~> 1.11)
     byebug (11.1.3)
     childprocess (4.1.0)
+    choice (0.2.0)
     coderay (1.1.3)
     concurrent-ruby (1.2.2)
     coolline (0.5.0)
@@ -211,6 +212,11 @@ GEM
       activesupport (>= 5.0.0)
       minitest
       nokogiri (>= 1.6)
+    rails-erd (1.7.2)
+      activerecord (>= 4.2)
+      activesupport (>= 4.2)
+      choice (~> 0.2.0)
+      ruby-graphviz (~> 1.2)
     rails-html-sanitizer (1.6.0)
       loofah (~> 2.21)
       nokogiri (~> 1.14)
@@ -275,6 +281,8 @@ GEM
       rubocop (~> 1.33)
       rubocop-capybara (~> 2.17)
       rubocop-factory_bot (~> 2.22)
+    ruby-graphviz (1.2.5)
+      rexml
     ruby-progressbar (1.13.0)
     simplecov (0.22.0)
       docile (~> 1.1)
@@ -339,6 +347,7 @@ DEPENDENCIES
   puma (~> 5.0)
   rack-mini-profiler
   rails (~> 7.0.5)
+  rails-erd
   rspec-rails
   rspec_junit_formatter
   rubocop

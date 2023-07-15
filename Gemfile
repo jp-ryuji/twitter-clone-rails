@@ -40,6 +40,7 @@ group :development do
   gem 'bundler', require: false
   gem 'overcommit', require: false
   gem 'rack-mini-profiler'
+  gem 'rails-erd', require: false
   gem 'rubocop', require: false
   gem 'rubocop-performance', require: false
   gem 'rubocop-rails', require: false
