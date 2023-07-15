@@ -1,0 +1,68 @@
+version: "3.8"
+
+volumes:
+  pgdata:
+    driver: local
+  miniodata:
+    driver: local
+
+services:
+  # web（rails）をコメントアウトしている背景は、docker.md 参照。
+  #
+  # web:
+  #   container_name: twitter-clone-rails-web
+  #   env_file: ./.env
+  #   image: twitter-clone-rails
+  #   build:
+  #     context: ./
+  #     args:
+  #       - UID=${UID}
+  #       - GID=${GID}
+  #       - RAILS_ENV=${RAILS_ENV:-development}
+  #   environment: &web
+  #     RUBYOPT: "-W:deprecated"
+  #     # DATABASE_URL: postgres://${DB_USERNAME:-postgres}:${DB_PASSWORD:-postgres}@db
+  #     DB_HOST: db
+  #     DB_PORT: ${DB_PORT:-5432}
+  #     DB_USERNAME: ${DB_USERNAME:-postgres}
+  #     DB_PASSWORD: ${DB_PASSWORD:-postgres}
+  #     RAILS_ENV: ${RAILS_ENV:-development}
+  #     RAILS_MAX_THREADS: 5
+  #     TZ: "Asia/Tokyo"
+  #   stdin_open: true # コンソールを有効にする
+  #   tty: true # コンソールを有効にする
+  #   depends_on:
+  #     - db
+  #     - minio
+  #   ports:
+  #     - ${RAILS_PORT:-3000}:3000
+  #   volumes:
+  #     - ./:/app
+
+  db:
+    container_name: twitter-clone-rails-db
+    env_file: ./.env
+    build:
+      context: ./docker/db
+    environment:
+      POSTGRES_USER: ${DB_USERNAME:-postgres}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-postgres}
+      POSTGRES_DB: twitter-clone-rails_${RAILS_ENV:-development}
+      PGPASSWORD: ${PG_PASSWORD:-postgres}
+      TZ: "Asia/Tokyo"
+    ports:
+      - ${DB_PORT:-5432}:5432
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+
+  minio:
+    image: minio/minio:RELEASE.2023-06-29T05-12-28Z
+    ports:
+      - ${MINIO_PORT}:9000
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
+    volumes:
+      - ./miniodata:/export
+    entrypoint: sh
+    command: -c 'mkdir -p /export/dev-bucket && /opt/bin/minio server /export'
