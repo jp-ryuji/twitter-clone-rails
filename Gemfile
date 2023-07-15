@@ -24,6 +24,7 @@ group :development, :test do
 end
 
 group :development do
+  gem 'annotate'
   gem 'brakeman', require: false
   gem 'bullet', require: false
   gem 'bundler', require: false
