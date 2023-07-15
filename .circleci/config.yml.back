@@ -1,0 +1,287 @@
+version: 2.1
+
+executors:
+  backend:
+    working_directory: ~/project_dir
+    docker:
+      - image: cimg/ruby:3.2.2
+        # auth:
+        #   username: renosys
+        #   password: $DOCKERHUB_PASSWORD
+        environment:
+          BUNDLER_VERSION: 2.4.15
+          # BUNDLE_APP_CONFIG: ~/project_dir/backend/.bundle
+          BUNDLE_APP_CONFIG: ~/project_dir/.bundle
+          RAILS_ENV: test
+          DB_HOST: 127.0.0.1
+          # AWS_ACCESS_KEY_ID: miniorootuser
+          # AWS_SECRET_ACCESS_KEY: miniorootpassword
+          # AWS_S3_ENDPOINT: http://127.0.0.1:9000
+      - image: cimg/postgres:15.3
+        # auth:
+        #   username: renosys
+        #   password: $DOCKERHUB_PASSWORD
+        environment:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+      # - image: minio/minio:RELEASE.2022-02-18T01-50-10Z.fips
+      #   command: "server /data"
+      #   environment:
+      #     MINIO_ROOT_USER: minioadmin
+      #     MINIO_ROOT_PASSWORD: minioadmin
+      #   auth:
+      #     username: renosys
+      #     password: $DOCKERHUB_PASSWORD
+  # frontend:
+  #   working_directory: ~/project_dir
+  #   docker:
+  #     - image: cypress/base:16.14.2
+  #       auth:
+  #         username: renosys
+  #         password: $DOCKERHUB_PASSWORD
+  #       environment:
+  #         YARN_CACHE_FOLDER: ~/project_dir/frontend/yarn_packages
+  #         TZ: Asia/Tokyo
+
+commands:
+  install_bundled_gems:
+    steps:
+      - run:
+          name: Install gems in Gemfile
+          # working_directory: backend
+          command: bundle install
+
+jobs:
+  setup_backend:
+    executor: backend
+    steps:
+      - checkout
+      - restore_cache:
+          keys:
+            # - v1-ruby-gems-{{ checksum "backend/Gemfile.lock" }}
+            - v1-ruby-gems-{{ checksum "Gemfile.lock" }}
+            - v1-ruby-gems
+      - run:
+          name: Install bundler
+          # working_directory: backend
+          command: gem install bundler -v $BUNDLER_VERSION
+      - run:
+          name: Set bundle config
+          # working_directory: backend
+          command: bundle config --local path 'vendor/bundle'
+      - install_bundled_gems
+      - save_cache:
+          # key: v1-ruby-gems-{{ checksum "backend/Gemfile.lock" }}
+          key: v1-ruby-gems-{{ checksum "Gemfile.lock" }}
+          paths:
+            - vendor/bundle
+          # paths:
+          #   - backend/vendor/bundle
+      # - persist_to_workspace:
+      #     root: ~/project_dir
+          # paths:
+          #   - backend
+  # setup_frontend:
+  #   executor: frontend
+  #   steps:
+  #     - checkout
+  #     - restore_cache:
+  #         keys:
+  #           - v1-yarn-packages-{{ checksum "frontend/yarn.lock" }}
+  #           - v1-yarn-packages
+  #     - restore_cache:
+  #         keys:
+  #           - v1-node-modules-{{ checksum "frontend/package.json" }}
+  #           - v1-node-modules
+  #     - run:
+  #         name: Install yarn packages
+  #         working_directory: frontend
+  #         environment:
+  #           CYPRESS_CACHE_FOLDER: "~/project_dir/.cache/Cypress"
+  #         command: yarn install
+  #     - save_cache:
+  #         key: v1-yarn-packages-{{ checksum "frontend/yarn.lock" }}
+  #         paths:
+  #           - frontend/yarn_packages
+  #           - .cache
+  #     - save_cache:
+  #         key: v1-node-modules-{{ checksum "frontend/package.json" }}
+  #         paths:
+  #           - frontend/node_modules
+  #           - .cache
+  #     - persist_to_workspace:
+  #         root: ~/project_dir
+  #         paths:
+  #           - frontend
+  #           - .cache
+  lint_backend:
+    executor: backend
+    steps:
+      - attach_workspace:
+          at: ~/project_dir
+      - install_bundled_gems
+      - run:
+          name: Run rubocop
+          # working_directory: backend
+          command: bundle exec rubocop
+  # lint_frontend:
+  #   executor: frontend
+  #   steps:
+  #     - attach_workspace:
+  #         at: ~/project_dir
+  #     - run:
+  #         name: Run eslint
+  #         working_directory: frontend
+  #         command: yarn lint --no-fix
+  test_backend:
+    executor: backend
+    steps:
+      - attach_workspace:
+          at: ~/project_dir
+      - run:
+          name: Update apt info
+          command: sudo apt update
+      # - run:
+      #     name: Install apt packages
+      #     command: sudo apt install p7zip-full
+      - install_bundled_gems
+      - run:
+          name: Setup database
+          working_directory: backend
+          command: bundle exec rails db:create && bundle exec rails db:migrate VERBOSE=true
+      - run:
+          name: Run rspec
+          # working_directory: backend
+          # TODO: テスト結果をファイル出力してCircleCI上で見れるように
+          command: RUBYOPT='-W:deprecated' bundle exec rspec
+  # test_e2e_backend:
+  #   # TODO: MPに接続するためにIPを固定したいが、とりあえずMPには接続しないで動くテストを書いている
+  #   # circleci_ip_ranges: true
+  #   executor: backend
+  #   steps:
+  #     - attach_workspace:
+  #         at: ~/project_dir
+  #     - run:
+  #         name: Update apt info
+  #         command: sudo apt update
+  #     - run:
+  #         name: Install apt packages
+  #         command: sudo apt install p7zip-full
+  #     - install_bundled_gems
+  #     - run:
+  #         name: Setup database
+  #         working_directory: backend
+  #         command: bundle exec rails db:create && bundle exec rails db:migrate VERBOSE=true
+  #     - run:
+  #         name: Run rspec
+  #         working_directory: backend
+  #         # TODO: テスト結果をファイル出力してCircleCI上で見れるように
+  #         command: bundle exec rspec --tag e2e
+  # test_frontend:
+  #   executor: frontend
+  #   steps:
+  #     - checkout
+  #     - attach_workspace:
+  #         at: ~/project_dir
+  #     - run:
+  #         name: Run jest
+  #         working_directory: frontend
+  #         # TODO: テスト結果をファイル出力してCircleCI上で見れるように
+  #         command: yarn test
+  # test_integration_frontend:
+  #   executor: frontend
+  #   steps:
+  #     - checkout
+  #     - attach_workspace:
+  #         at: ~/project_dir
+  #     - run:
+  #         name: Run cypress integration
+  #         working_directory: frontend
+  #         environment:
+  #           CYPRESS_CACHE_FOLDER: "~/project_dir/.cache/Cypress"
+  #         command: yarn start & yarn test:integration
+  #     # Store test artifacts
+  #     - store_artifacts:
+  #         path: frontend/cypress/screenshots
+  # check_gql_operations:
+  #   executor: frontend
+  #   steps:
+  #     - checkout
+  #     - attach_workspace:
+  #         at: ~/project_dir
+  #     - run:
+  #         name: Install apt packages
+  #         command: apt update && apt install -y git
+  #     - run:
+  #         name: Check gql_operations
+  #         working_directory: frontend
+  #         command: |
+  #           yarn generate_gql_operations
+  #           git diff | tee git_diff.txt
+  #           if [ -s git_diff.txt ]; then
+  #             echo "git diff に差分があります。 yarn generate_gql_operations を実行して下さい"
+  #             exit 1
+  #           fi
+  #           rm git_diff.txt
+
+  # build_frontend:
+  #   executor: frontend
+  #   steps:
+  #     - attach_workspace:
+  #         at: ~/project_dir
+  #     - run:
+  #         name: Build frontend
+  #         working_directory: frontend
+  #         environment:
+  #           VITE_GRAPHQL_ENDPOINT_URI: http://localhost:8081/v1/graphql
+  #         command: yarn build
+  #     - persist_to_workspace:
+  #         root: ~/project_dir
+  #         paths:
+  #           - frontend/dist
+
+workflows:
+  backend:
+    jobs:
+      - setup_backend
+      - lint_backend:
+          requires:
+            - setup_backend
+      - test_backend:
+          requires:
+            - setup_backend
+      # - test_e2e_backend:
+      #     requires:
+      #       - setup_backend
+      #     context: e2e_test
+      #     filters:
+      #       branches:
+      #         only:
+      #           - master
+      #           - /release.*/
+      #           - /.*e2e.*/
+  # frontend:
+  #   jobs:
+  #     - setup_frontend
+  #     - lint_frontend:
+  #         requires:
+  #           - setup_frontend
+  #     - build_frontend:
+  #         requires:
+  #           - setup_frontend
+  #     - test_frontend:
+  #         requires:
+  #           - setup_frontend
+  #     - test_integration_frontend:
+  #         requires:
+  #           - setup_frontend
+  #           - build_frontend
+  #         filters:
+  #           branches:
+  #             only:
+  #               - master
+  #               - /release.*/
+  #               - /.*integration.*/
+  #     - check_gql_operations:
+  #         requires:
+  #           - setup_frontend

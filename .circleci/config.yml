@@ -1,287 +1,351 @@
 version: 2.1
 
+orbs:
+  slack: circleci/slack@3.3.0
+
 executors:
-  backend:
-    working_directory: ~/project_dir
+  default:
+    working_directory: ~/repo # default: ~/project
     docker:
-      - image: cimg/ruby:3.2.2
-        # auth:
-        #   username: renosys
-        #   password: $DOCKERHUB_PASSWORD
+      - image: circleci/ruby:2.6.6-node-browsers
+        auth:
+          username: renosys
+          password: $DOCKERHUB_PASSWORD
         environment:
-          BUNDLER_VERSION: 2.4.15
-          # BUNDLE_APP_CONFIG: ~/project_dir/backend/.bundle
-          BUNDLE_APP_CONFIG: ~/project_dir/.bundle
+          # BUNDLE_PATH=/usr/local/bundle is set in the original docker image. Should be overwritten.
+          # https://hub.docker.com/layers/circleci/ruby/2.6.6-node/images/sha256-371f81f654d9a2d5e3b71bbf3616ac076686358838bc123d27ba35ff6d8df321?context=explore
+          BUNDLE_PATH: vendor/bundle
           RAILS_ENV: test
-          DB_HOST: 127.0.0.1
-          # AWS_ACCESS_KEY_ID: miniorootuser
-          # AWS_SECRET_ACCESS_KEY: miniorootpassword
-          # AWS_S3_ENDPOINT: http://127.0.0.1:9000
-      - image: cimg/postgres:15.3
-        # auth:
-        #   username: renosys
-        #   password: $DOCKERHUB_PASSWORD
+  extended:
+    working_directory: ~/repo
+    docker:
+      - image: circleci/ruby:2.6.6-node-browsers
+        auth:
+          username: renosys
+          password: $DOCKERHUB_PASSWORD
         environment:
-          POSTGRES_USER: postgres
-          POSTGRES_PASSWORD: postgres
-      # - image: minio/minio:RELEASE.2022-02-18T01-50-10Z.fips
-      #   command: "server /data"
-      #   environment:
-      #     MINIO_ROOT_USER: minioadmin
-      #     MINIO_ROOT_PASSWORD: minioadmin
-      #   auth:
-      #     username: renosys
-      #     password: $DOCKERHUB_PASSWORD
-  # frontend:
-  #   working_directory: ~/project_dir
-  #   docker:
-  #     - image: cypress/base:16.14.2
-  #       auth:
-  #         username: renosys
-  #         password: $DOCKERHUB_PASSWORD
-  #       environment:
-  #         YARN_CACHE_FOLDER: ~/project_dir/frontend/yarn_packages
-  #         TZ: Asia/Tokyo
+          BUNDLE_PATH: vendor/bundle
+          RAILS_ENV: test
+          PGHOST: 127.0.0.1
+          PGUSER: root
+      - image: circleci/postgres:9.6.2-alpine
+        auth:
+          username: renosys
+          password: $DOCKERHUB_PASSWORD
+        environment:
+          POSTGRES_USER: root
+          POSTGRES_DB: circle-test
 
 commands:
-  install_bundled_gems:
+  restore_source_code:
+    steps:
+      - restore_cache:
+          name: Restore source code cache
+          keys:
+            - v3-source-code-{{ .Environment.CIRCLE_SHA1 }}
+            - v3-source-code-
+  save_source_code:
+    steps:
+      - save_cache:
+          key: v3-source-code-{{ .Environment.CIRCLE_SHA1 }}
+          paths:
+            - ~/repo
+  restore_node_dependencies:
+    steps:
+      - restore_cache:
+          name: Restore node dependencies cache
+          keys:
+            - v3-node-dependencies-{{ checksum "yarn.lock" }}
+            - v3-node-dependencies-
+  install_node_dependencies:
     steps:
       - run:
-          name: Install gems in Gemfile
-          # working_directory: backend
-          command: bundle install
-
-jobs:
-  setup_backend:
-    executor: backend
+          name: Install node dependencies
+          command: yarn install --frozen-lockfile
+  save_node_dependencies:
     steps:
-      - checkout
+      - save_cache:
+          name: Save node dependencies cache
+          key: v3-node-dependencies-{{ checksum "yarn.lock" }}
+          paths:
+            - ~/repo/node_modules
+  restore_bundle_dependencies:
+    steps:
       - restore_cache:
+          name: Restore bundle dependencies cache
           keys:
-            # - v1-ruby-gems-{{ checksum "backend/Gemfile.lock" }}
-            - v1-ruby-gems-{{ checksum "Gemfile.lock" }}
-            - v1-ruby-gems
+            - v3-bundle-dependencies-{{ checksum "Gemfile.lock" }}
+            - v3-bundle-dependencies-
+  install_bundler:
+    steps:
       - run:
           name: Install bundler
-          # working_directory: backend
-          command: gem install bundler -v $BUNDLER_VERSION
-      - run:
-          name: Set bundle config
-          # working_directory: backend
-          command: bundle config --local path 'vendor/bundle'
-      - install_bundled_gems
-      - save_cache:
-          # key: v1-ruby-gems-{{ checksum "backend/Gemfile.lock" }}
-          key: v1-ruby-gems-{{ checksum "Gemfile.lock" }}
-          paths:
-            - vendor/bundle
-          # paths:
-          #   - backend/vendor/bundle
-      # - persist_to_workspace:
-      #     root: ~/project_dir
-          # paths:
-          #   - backend
-  # setup_frontend:
-  #   executor: frontend
-  #   steps:
-  #     - checkout
-  #     - restore_cache:
-  #         keys:
-  #           - v1-yarn-packages-{{ checksum "frontend/yarn.lock" }}
-  #           - v1-yarn-packages
-  #     - restore_cache:
-  #         keys:
-  #           - v1-node-modules-{{ checksum "frontend/package.json" }}
-  #           - v1-node-modules
-  #     - run:
-  #         name: Install yarn packages
-  #         working_directory: frontend
-  #         environment:
-  #           CYPRESS_CACHE_FOLDER: "~/project_dir/.cache/Cypress"
-  #         command: yarn install
-  #     - save_cache:
-  #         key: v1-yarn-packages-{{ checksum "frontend/yarn.lock" }}
-  #         paths:
-  #           - frontend/yarn_packages
-  #           - .cache
-  #     - save_cache:
-  #         key: v1-node-modules-{{ checksum "frontend/package.json" }}
-  #         paths:
-  #           - frontend/node_modules
-  #           - .cache
-  #     - persist_to_workspace:
-  #         root: ~/project_dir
-  #         paths:
-  #           - frontend
-  #           - .cache
-  lint_backend:
-    executor: backend
+          command: |
+            pwd # debug
+
+            BUNDLER_VERSION=$(cat Gemfile.lock | tail -1 | tr -d " ")
+            echo $BUNDLER_VERSION # debug
+            gem install bundler:$BUNDLER_VERSION
+  install_bundle_dependencies:
     steps:
-      - attach_workspace:
-          at: ~/project_dir
-      - install_bundled_gems
+      - run:
+          name: Install bundle dependencies
+          command: |
+            pwd # debug
+
+            bundle install --jobs=4 --retry=3
+  save_bundle_dependencies:
+    steps:
+      - save_cache:
+          key: v3-bundle-dependencies-{{ checksum "Gemfile.lock" }}
+          paths:
+            - ~/repo/vendor/bundle
+  build_frontend:
+    steps:
+      - run:
+          name: Build frontend
+          command: RAILS_ENV=production bin/rails assets:precompile --trace
+  copy_application_yml:
+    steps:
+      - run:
+          name: Copy application.yml.sample
+          command: cp -p config/application.yml.sample config/application.yml
+  wait_for_db_start_up:
+    steps:
+      - run:
+          name: Wait for db start up
+          command: dockerize -wait tcp://127.0.0.1:5432 -timeout 1m
+  set_up_database:
+    steps:
+      - run:
+          name: Set up database
+          command: |
+            pwd # debug (it's /home/circleci/repo and it's what's expected)
+            echo $(cat Gemfile.lock | tail -1 | tr -d " ") # debug
+
+            bin/rails db:create --trace
+            bin/rails db:migrate --trace
+  run_rubocop:
+    steps:
       - run:
           name: Run rubocop
-          # working_directory: backend
           command: bundle exec rubocop
-  # lint_frontend:
-  #   executor: frontend
-  #   steps:
-  #     - attach_workspace:
-  #         at: ~/project_dir
-  #     - run:
-  #         name: Run eslint
-  #         working_directory: frontend
-  #         command: yarn lint --no-fix
-  test_backend:
-    executor: backend
+  run_rspec:
     steps:
-      - attach_workspace:
-          at: ~/project_dir
-      - run:
-          name: Update apt info
-          command: sudo apt update
-      # - run:
-      #     name: Install apt packages
-      #     command: sudo apt install p7zip-full
-      - install_bundled_gems
-      - run:
-          name: Setup database
-          working_directory: backend
-          command: bundle exec rails db:create && bundle exec rails db:migrate VERBOSE=true
       - run:
           name: Run rspec
-          # working_directory: backend
-          # TODO: テスト結果をファイル出力してCircleCI上で見れるように
-          command: RUBYOPT='-W:deprecated' bundle exec rspec
-  # test_e2e_backend:
-  #   # TODO: MPに接続するためにIPを固定したいが、とりあえずMPには接続しないで動くテストを書いている
-  #   # circleci_ip_ranges: true
-  #   executor: backend
-  #   steps:
-  #     - attach_workspace:
-  #         at: ~/project_dir
-  #     - run:
-  #         name: Update apt info
-  #         command: sudo apt update
-  #     - run:
-  #         name: Install apt packages
-  #         command: sudo apt install p7zip-full
-  #     - install_bundled_gems
-  #     - run:
-  #         name: Setup database
-  #         working_directory: backend
-  #         command: bundle exec rails db:create && bundle exec rails db:migrate VERBOSE=true
-  #     - run:
-  #         name: Run rspec
-  #         working_directory: backend
-  #         # TODO: テスト結果をファイル出力してCircleCI上で見れるように
-  #         command: bundle exec rspec --tag e2e
-  # test_frontend:
-  #   executor: frontend
-  #   steps:
-  #     - checkout
-  #     - attach_workspace:
-  #         at: ~/project_dir
-  #     - run:
-  #         name: Run jest
-  #         working_directory: frontend
-  #         # TODO: テスト結果をファイル出力してCircleCI上で見れるように
-  #         command: yarn test
-  # test_integration_frontend:
-  #   executor: frontend
-  #   steps:
-  #     - checkout
-  #     - attach_workspace:
-  #         at: ~/project_dir
-  #     - run:
-  #         name: Run cypress integration
-  #         working_directory: frontend
-  #         environment:
-  #           CYPRESS_CACHE_FOLDER: "~/project_dir/.cache/Cypress"
-  #         command: yarn start & yarn test:integration
-  #     # Store test artifacts
-  #     - store_artifacts:
-  #         path: frontend/cypress/screenshots
-  # check_gql_operations:
-  #   executor: frontend
-  #   steps:
-  #     - checkout
-  #     - attach_workspace:
-  #         at: ~/project_dir
-  #     - run:
-  #         name: Install apt packages
-  #         command: apt update && apt install -y git
-  #     - run:
-  #         name: Check gql_operations
-  #         working_directory: frontend
-  #         command: |
-  #           yarn generate_gql_operations
-  #           git diff | tee git_diff.txt
-  #           if [ -s git_diff.txt ]; then
-  #             echo "git diff に差分があります。 yarn generate_gql_operations を実行して下さい"
-  #             exit 1
-  #           fi
-  #           rm git_diff.txt
+          command: bundle exec rspec --format progress --format RspecJunitFormatter -o test_results/rspec.xml
+  run_eslint:
+    steps:
+      - run:
+          name: Run eslint
+          command: |
+            pwd # debug (it's /home/circleci/repo and it's what's expected)
 
-  # build_frontend:
-  #   executor: frontend
-  #   steps:
-  #     - attach_workspace:
-  #         at: ~/project_dir
-  #     - run:
-  #         name: Build frontend
-  #         working_directory: frontend
-  #         environment:
-  #           VITE_GRAPHQL_ENDPOINT_URI: http://localhost:8081/v1/graphql
-  #         command: yarn build
-  #     - persist_to_workspace:
-  #         root: ~/project_dir
-  #         paths:
-  #           - frontend/dist
+            yarn lint --format junit -o test_results/eslint.xml
+  run_jest:
+    steps:
+      - run:
+          name: Run jest
+          command: yarn test --maxWorkers=2 --testResultsProcessor="jest-junit"
+          environment:
+            JEST_JUNIT_OUTPUT: ~/test_results/jest.xml
+  run_e2e:
+    steps:
+      - run:
+          name: Run e2e
+          command: yarn test:e2e --maxWorkers=2 --testResultsProcessor="jest-junit"
+          environment:
+            JEST_JUNIT_OUTPUT: ~/test_results/jest.xml
+  run_newman:
+    steps:
+      - run:
+          name: Run newman
+          command: yarn test:request
+  startup_localhost:
+    steps:
+      - run:
+          name: Startup localhost service for system test
+          command: bin/rails s -p 3000 -b localhost
+          background: true
+  wait_for_localhost_start_up:
+    steps:
+      - run:
+          name: Wait for localhost start up
+          command: dockerize -wait http://localhost:3000 -timeout 10m
+  generate_data:
+    steps:
+      - run:
+          name: Generate test data
+          command: bin/rails dev:generate_data
+
+jobs:
+  checkout_code:
+    executor: default
+    steps:
+      - checkout
+      - save_source_code
+  node_dependencies:
+    executor: default
+    steps:
+      - restore_source_code
+      - restore_node_dependencies
+      - install_node_dependencies
+      - save_node_dependencies
+  bundle_dependencies:
+    executor: default
+    steps:
+      - restore_source_code
+      - restore_bundle_dependencies
+      - install_bundler
+      - install_bundle_dependencies
+      - save_bundle_dependencies
+  build_frontend_code:
+    executor: default
+    steps:
+      - restore_source_code
+      - copy_application_yml
+      - restore_bundle_dependencies
+      - install_bundler
+      - restore_node_dependencies
+      - build_frontend
+  rubocop_job:
+    executor: default
+    steps:
+      - restore_source_code
+      - restore_bundle_dependencies
+      - install_bundler
+      - run_rubocop
+  eslint_job:
+    executor: default
+    steps:
+      - restore_source_code
+      - restore_node_dependencies
+      - run_eslint
+  jest_job:
+    executor: default
+    steps:
+      - restore_source_code
+      - restore_node_dependencies
+      - run_jest
+  e2e_job:
+    executor: extended
+    steps:
+      - restore_source_code
+      - restore_node_dependencies
+      - install_node_dependencies
+      - copy_application_yml
+      - restore_bundle_dependencies
+      - install_bundler
+      - wait_for_db_start_up
+      - set_up_database
+      - generate_data
+      - startup_localhost
+      - wait_for_localhost_start_up
+      - run_e2e
+  rspec_job:
+    executor: extended
+    steps:
+      - restore_source_code
+      - restore_bundle_dependencies
+      - install_bundler
+      - wait_for_db_start_up
+      - set_up_database
+      - copy_application_yml
+      - run_rspec
+      # see: https://circleci.com/docs/2.0/code-coverage/
+      # You can check the code coverage at coverage/index.html on ARTIFACTS of this job on CircleCI.
+      - store_artifacts:
+          path: coverage
+  request_test:
+    executor: extended
+    steps:
+      - restore_source_code
+      - restore_node_dependencies
+      - install_node_dependencies
+      - copy_application_yml
+      - restore_bundle_dependencies
+      - install_bundler
+      - wait_for_db_start_up
+      - set_up_database
+      - generate_data
+      - startup_localhost
+      - wait_for_localhost_start_up
+      - run:
+          name: Decode POSTMAN_ENV
+          command: echo $POSTMAN_ENV | base64 --decode > config/postman_environment.json
+      - run_newman
+  deploy:
+    executor: default
+    parameters:
+      env:
+        type: enum
+        enum: ['dtr', 'production']
+    steps:
+      - restore_source_code
+      - restore_bundle_dependencies
+      - install_bundler
+      - add_ssh_keys:
+          fingerprints: 03:d0:c6:13:39:f1:7f:0c:8d:b5:f5:10:e5:00:cf:69
+      - run:
+          name: Deploy to << parameters.env >>
+          command: bundle exec cap << parameters.env >> deploy
+      - slack/status:
+          mentions: channel
 
 workflows:
-  backend:
+  build_test_and_deploy:
     jobs:
-      - setup_backend
-      - lint_backend:
+      - checkout_code
+      - node_dependencies:
           requires:
-            - setup_backend
-      - test_backend:
+            - checkout_code
+      - bundle_dependencies:
           requires:
-            - setup_backend
-      # - test_e2e_backend:
+            - checkout_code
+      - rubocop_job:
+          requires:
+            - bundle_dependencies
+      - eslint_job:
+          requires:
+            - node_dependencies
+      - jest_job:
+          requires:
+            - node_dependencies
+      - e2e_job:
+          requires:
+            - node_dependencies
+      - rspec_job:
+          requires:
+            - bundle_dependencies
+      - build_frontend_code:
+          requires:
+            - bundle_dependencies
+            - node_dependencies
+      - request_test:
+          requires:
+            - node_dependencies
+      - deploy:
+          name: Deploy to dtr
+          env: dtr
+          requires:
+            # - rubocop_job
+            - eslint_job
+            - jest_job
+            - e2e_job
+            - rspec_job
+          filters:
+            branches:
+              only: develop
+      # NOTE: Commented out at this moment because the deploy is being done manually after merging develop into master directly.
+      # - deploy_to_production:
+      #     name: Deploy to production
+      #     env: production
       #     requires:
-      #       - setup_backend
-      #     context: e2e_test
+      #       # - rubocop_job
+      #       - eslint_job
+      #       - jest_job
+      #       - rspec_job
       #     filters:
       #       branches:
-      #         only:
-      #           - master
-      #           - /release.*/
-      #           - /.*e2e.*/
-  # frontend:
-  #   jobs:
-  #     - setup_frontend
-  #     - lint_frontend:
-  #         requires:
-  #           - setup_frontend
-  #     - build_frontend:
-  #         requires:
-  #           - setup_frontend
-  #     - test_frontend:
-  #         requires:
-  #           - setup_frontend
-  #     - test_integration_frontend:
-  #         requires:
-  #           - setup_frontend
-  #           - build_frontend
-  #         filters:
-  #           branches:
-  #             only:
-  #               - master
-  #               - /release.*/
-  #               - /.*integration.*/
-  #     - check_gql_operations:
-  #         requires:
-  #           - setup_frontend
+      #         only: master
