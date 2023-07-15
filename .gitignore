@@ -35,3 +35,7 @@
 # RSpec
 /spec/examples.txt
 /coverage
+
+.env
+
+miniodata
