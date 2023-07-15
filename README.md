@@ -1,24 +1,8 @@
 # README
+## Documentation
 
-This README would normally document whatever steps are necessary to get the
-application up and running.
+Find specific documentation in the [docs/](docs/) folder:
 
-Things you may want to cover:
+(*) が付いたものは、はじめに目を通しておく。
 
-* Ruby version
-
-* System dependencies
-
-* Configuration
-
-* Database creation
-
-* Database initialization
-
-* How to run the test suite
-
-* Services (job queues, cache servers, search engines, etc.)
-
-* Deployment instructions
-
-* ...
+- [コーディング規約 (*)](docs/coding_standard.md)

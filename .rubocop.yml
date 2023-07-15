@@ -1,0 +1,148 @@
+require:
+  - rubocop-rails
+  - rubocop-rspec
+  - rubocop-performance
+  - rubocop-factory_bot
+inherit_mode:
+  merge:
+    - Exclude
+    - Include
+AllCops:
+  NewCops: enable
+  DisplayCopNames: true
+  Include:
+    - Rakefile
+    - config.ru
+    - config/initializer/*
+    - config/routes.rb
+  Exclude:
+    - db/schema.rb
+    - bin/*
+    - config/**/*
+    - vendor/**/*
+    - scripts/**/*
+
+# rswagの設定。ドキュメントには以下のinheit_gemsをすると書いてあるが、動作しない。そこで内容をコピーした。
+# inherit_gem:
+#   rswag-specs: .rubocop_rspec_alias_config.yml
+RSpec:
+  Language:
+    ExampleGroups:
+      Regular:
+        - path
+        - response
+        - get
+        - post
+        - patch
+        - put
+        - delete
+        - head
+        - options
+        - trace
+    Examples:
+      Regular:
+        - run_test!
+
+Layout/LineLength:
+  Max: 150
+  Exclude:
+    - spec/**/*
+    - lib/tasks/*
+    - config/routes.rb
+Metrics/AbcSize:
+  Exclude:
+    - app/decorators/**/*
+Metrics/MethodLength:
+  Max: 15
+Metrics/ModuleLength:
+  Enabled: false
+Metrics/ClassLength:
+  Enabled: false
+Metrics/BlockLength:
+  Exclude:
+    - spec/**/*_spec.rb
+    - spec/factories/*
+    - spec/support/*
+    - Guardfile
+    - lib/tasks/*
+    - config/routes.rb
+Lint/NonLocalExitFromIterator:
+  Enabled: false
+Naming/FileName:
+  Exclude:
+    - Gemfile
+    - Guardfile
+Rails:
+  Enabled: true
+Style/Documentation:
+  Enabled: false
+RSpec/NestedGroups:
+  Enabled: false
+RSpec/ExampleLength:
+  Enabled: false
+RSpec/MultipleExpectations:
+  Enabled: false
+Style/AsciiComments:
+  Enabled: false
+Layout/EmptyLineAfterGuardClause:
+  Enabled: false
+Style/TrailingCommaInHashLiteral:
+  EnforcedStyleForMultiline: consistent_comma
+Style/TrailingCommaInArrayLiteral:
+  EnforcedStyleForMultiline: consistent_comma
+Style/TrailingCommaInArguments:
+  EnforcedStyleForMultiline: consistent_comma
+RSpec/MessageChain:
+  Enabled: false
+Layout/EmptyLinesAroundAttributeAccessor:
+  Enabled: true
+Layout/SpaceAroundMethodCallOperator:
+  Enabled: true
+Lint/DeprecatedOpenSSLConstant:
+  Enabled: true
+Lint/RaiseException:
+  Enabled: true
+Lint/StructNewOverride:
+  Enabled: true
+Style/ExponentialNotation:
+  Enabled: true
+Style/HashEachMethods:
+  Enabled: true
+Style/HashTransformKeys:
+  Enabled: true
+Style/HashTransformValues:
+  Enabled: true
+Style/SlicingWithRange:
+  Enabled: true
+RSpec/NamedSubject:
+  Enabled: false
+RSpec/MultipleMemoizedHelpers:
+  Enabled: false
+Rails/UniqueValidationWithoutIndex:
+  Enabled: false
+Style/OptionalBooleanParameter:
+  Enabled: false
+Rails/SkipsModelValidations:
+  Enabled: false
+Lint/MixedRegexpCaptureTypes:
+  Enabled: false
+Rails/InverseOf:
+  Enabled: false
+Lint/ToEnumArguments:
+  Enabled: false
+RSpec/EmptyLineAfterSubject:
+  Enabled: false
+RSpec/ContextWording:
+  Enabled: false
+Style/OpenStructUse:
+  Enabled: false
+Rails/I18nLocaleTexts:
+  Enabled: false
+RSpec/RepeatedExampleGroupBody:
+  Enabled: false
+Style/HashSyntax:
+  EnforcedShorthandSyntax: never
+Naming/BlockForwarding:
+  EnforcedStyle: explicit
+Metrics/ParameterLists:
+  Enabled: false
