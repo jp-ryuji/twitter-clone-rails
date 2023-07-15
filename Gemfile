@@ -24,7 +24,9 @@ group :development, :test do
 end
 
 group :development do
+  gem 'brakeman', require: false
   gem 'bullet', require: false
+  gem 'bundler', require: false
   gem 'overcommit', require: false
   gem 'rack-mini-profiler'
   gem 'rubocop', require: false
