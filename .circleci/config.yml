@@ -1,0 +1,236 @@
+version: 2.1
+
+orbs:
+  aws-ecr: circleci/aws-ecr@8.2.1
+  aws-ecs: circleci/aws-ecs@3.2.0
+
+parameters:
+  import_seed_data:
+    type: boolean
+    default: false
+
+executors:
+  default:
+    working_directory: ~/repo # default: ~/project
+    docker:
+      - image: cimg/ruby:3.2.2
+        # auth:
+        #   username: renosys
+        #   password: $DOCKERHUB_PASSWORD
+        environment:
+          BUNDLER_VERSION: 2.4.15
+          BUNDLE_APP_CONFIG: ~/repo/.bundle
+          BUNDLE_PATH: vendor/bundle
+          RAILS_ENV: test
+  extended:
+    working_directory: ~/repo
+    docker:
+      - image: cimg/ruby:3.2.2
+        # auth:
+        #   username: renosys
+        #   password: $DOCKERHUB_PASSWORD
+        environment:
+          BUNDLER_VERSION: 2.4.15
+          BUNDLE_APP_CONFIG: ~/repo/.bundle
+          BUNDLE_PATH: vendor/bundle
+          RAILS_ENV: test
+          DB_HOST: 127.0.0.1
+      - image: cimg/postgres:15.3
+        # auth:
+        #   username: renosys
+        #   password: $DOCKERHUB_PASSWORD
+        environment:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+
+commands:
+  restore_bundle_dependencies:
+    steps:
+      - restore_cache:
+          name: Restore bundle dependencies cache
+          keys:
+            - v1-bundle-dependencies-{{ checksum "Gemfile.lock" }}
+            - v1-bundle-dependencies-
+  install_bundler:
+    steps:
+      - run:
+          name: Install bundler
+          command: gem install bundler -v $BUNDLER_VERSION
+  install_bundle_dependencies:
+    steps:
+      - run:
+          name: Install bundle dependencies
+          command: |
+            pwd # debug
+
+            bundle install --jobs=4 --retry=3
+  save_bundle_dependencies:
+    steps:
+      - save_cache:
+          key: v1-bundle-dependencies-{{ checksum "Gemfile.lock" }}
+          paths:
+            - ~/repo/vendor/bundle
+  # restore_node_dependencies:
+  #   steps:
+  #     - restore_cache:
+  #         name: Restore node dependencies cache
+  #         keys:
+  #           - v1-node-dependencies-{{ checksum "yarn.lock" }}
+  #           - v1-node-dependencies-
+  # install_node_dependencies:
+  #   steps:
+  #     - run:
+  #         name: Install node dependencies
+  #         command: yarn install --frozen-lockfile
+  # save_node_dependencies:
+  #   steps:
+  #     - save_cache:
+  #         name: Save node dependencies cache
+  #         key: v1-node-dependencies-{{ checksum "yarn.lock" }}
+  #         paths:
+  #           - ~/repo/node_modules
+  # build_frontend:
+  #   steps:
+  #     - run:
+  #         name: Precompile assets
+  #         command: RAILS_ENV=production bundle exec assets:precompile --trace
+  wait_for_db_start_up:
+    steps:
+      - run:
+          name: Wait for db start up
+          command: dockerize -wait tcp://127.0.0.1:5432 -timeout 1m
+  set_up_database:
+    steps:
+      - run:
+          name: Set up database
+          command: |
+            bundle exec rails db:create --trace
+            bundle exec rails db:migrate --trace
+  run_rubocop:
+    steps:
+      - run:
+          name: Run rubocop
+          command: bundle exec rubocop
+  run_rspec:
+    steps:
+      - run:
+          name: Run rspec
+          command: bundle exec rspec --format progress --format RspecJunitFormatter -o test_results/rspec.xml
+
+jobs:
+  # node_dependencies:
+  #   executor: default
+  #   steps:
+  #     - restore_source_code
+  #     - restore_node_dependencies
+  #     - install_node_dependencies
+  #     - save_node_dependencies
+  bundle_dependencies:
+    executor: default
+    steps:
+      - checkout
+      - restore_bundle_dependencies
+      - install_bundler
+      - install_bundle_dependencies
+      - save_bundle_dependencies
+  # build_frontend_code:
+  #   executor: default
+  #   steps:
+  #     - restore_source_code
+  #     - copy_application_yml
+  #     - restore_bundle_dependencies
+  #     - install_bundler
+  #     - restore_node_dependencies
+  #     - build_frontend
+  rubocop_job:
+    executor: default
+    steps:
+      - checkout
+      - restore_bundle_dependencies
+      - install_bundler
+      - run_rubocop
+  rspec_job:
+    executor: extended
+    steps:
+      - checkout
+      - restore_bundle_dependencies
+      - install_bundler
+      - wait_for_db_start_up
+      - set_up_database
+      - run_rspec
+      # see: https://circleci.com/docs/2.0/code-coverage/
+      # You can check the code coverage at coverage/index.html on ARTIFACTS of this job on CircleCI.
+      - store_artifacts:
+          path: coverage
+
+workflows:
+  linter_and_test:
+    jobs:
+      - bundle_dependencies
+      - rubocop_job:
+          requires:
+            - bundle_dependencies
+      - rspec_job:
+          requires:
+            - bundle_dependencies
+
+  build_and_deploy:
+    when:
+      not: << pipeline.parameters.import_seed_data >>
+    jobs:
+      - aws-ecr/build-and-push-image:
+          name: "Build and push image"
+          create-repo: false
+          repo: uipf_web
+          tag: "${CIRCLE_SHA1}"
+          filters:
+            branches:
+              only:
+                - develop
+      - aws-ecs/update-task-definition:
+          name: "Update task definition of staging"
+          requires:
+            - Build and push image
+          family: uipf-web-stg-task
+          container-image-name-updates: "container=uipf-web-uipf-web-container,image-and-tag=${AWS_ECR_ACCOUNT_URL}/uipf_web:${CIRCLE_SHA1}"
+          rule-name: default
+          filters:
+            branches:
+              only:
+                - develop
+      - aws-ecs/run-task:
+          name: "Run database migration task on staging"
+          requires:
+            - Update task definition of staging
+          cluster: arn:aws:ecs:ap-northeast-1:413038473450:cluster/uipf-web-stg-cluster
+          task-definition: uipf-web-stg-task
+          subnet-ids: subnet-0661d829f0c3a0c85,subnet-043f393a1ac25cc86
+          security-group-ids: sg-0b07a1f70ff16a836, sg-07cf775ef0911038c
+          count: 1
+          overrides: '{"containerOverrides":[{"name":"uipf-web-uipf-web-container","command":["bundle","exec","rails","db:migrate"],"environment":[{"name":"RAILS_ENV","value":"staging"}]}]}'
+          filters:
+            branches:
+              only:
+                - develop
+      - aws-ecs/deploy-service-update:
+          name: "replace image and deploy service on staging"
+          requires:
+            - Run database migration task on staging
+          cluster: arn:aws:ecs:ap-northeast-1:413038473450:cluster/uipf-web-stg-cluster
+          service-name: uipf-web-service
+          family: uipf-web-stg-task
+          container-image-name-updates: container=uipf-web-uipf-web-container,image-and-tag=${AWS_ECR_ACCOUNT_URL}/uipf_web:${CIRCLE_SHA1}
+          filters:
+            branches:
+              only:
+                - develop
+  import_data:
+    when: << pipeline.parameters.import_seed_data >>
+    jobs:
+      - aws-ecs/run-task:
+          name: "import seed data on staging"
+          cluster: arn:aws:ecs:ap-northeast-1:413038473450:cluster/uipf-web-stg-cluster
+          task-definition: uipf-web-stg-task
+          subnet-ids: subnet-0661d829f0c3a0c85,subnet-043f393a1ac25cc86
+          security-group-ids: sg-0b07a1f70ff16a836, sg-07cf775ef0911038c
+          overrides: '{"containerOverrides":[{"name":"uipf-web-uipf-web-container","command":["bundle","exec","rails","seed:generate"],"environment":[{"name":"RAILS_ENV","value":"staging"}]}]}'
